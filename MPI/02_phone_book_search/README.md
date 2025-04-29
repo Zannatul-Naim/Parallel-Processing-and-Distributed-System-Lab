@@ -37,7 +37,7 @@ Each phonebook text file should contain lines in the format:
 Use mpic++ to compile:
 
 ```bash 
-    mpic++ -o search search_optimized.cpp
+    mpic++ -o ps PhoneBookSearch.cpp
 ```
 
 * * * * *
@@ -47,7 +47,7 @@ Use mpic++ to compile:
 Run with 4 processes on 2 phonebook files and search for "Bob":
 
 ```bash
-    mpirun -np 4 ./search phonebook1.txt [phonebook2.txt] Bob
+    mpirun -np 4 ./ps phonebooksearch_input_1.txt [phonebook2.txt] Bob
 ```
 * * * * *
 
