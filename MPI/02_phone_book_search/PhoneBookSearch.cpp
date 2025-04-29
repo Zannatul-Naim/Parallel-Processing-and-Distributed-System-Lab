@@ -1,177 +1,156 @@
-#include <bits/stdc++.h>
 #include <mpi.h>
+#include <bits/stdc++.h>
 
 using namespace std;
 
-//... To compile: mpic++ phonebook-search.cpp -o phonebook-search
-//... To run: mpirun -n 4 ./phonebook-search phonebook1.txt phonebook2.txt
+struct Contact {
+    string name;
+    string phone;
+};
 
-void send_string(string text, int receiver)
-{
-    int length = text.size() + 1;
-    MPI_Send(&length, 1, MPI_INT, receiver, 1, MPI_COMM_WORLD);
-    MPI_Send(&text[0], length, MPI_CHAR, receiver, 1, MPI_COMM_WORLD);
-}
-
-string receive_string(int sender)
-{
-    int length;
-    MPI_Recv(&length, 1, MPI_INT, sender, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    char *text = new char[length];
-    MPI_Recv(text, length, MPI_CHAR, sender, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    return string(text);
-}
-
-string vector_to_string(vector<string> &words, int start, int end)
-{
-    string text = "";
-    for (int i = start; i < min((int)words.size(), end); i++)
-    {
-        text += words[i] + "\n";
-    }
-    return text;
-}
-
-vector<string> string_to_vector(string text)
-{
-    stringstream x(text);
-    vector<string> words;
-    string word;
-    while (x >> word)
-    {
-        words.push_back(word);
-    }
-    return words;
-}
-
-bool check(string& name, string& number, string& searchName, int rank){
-    // if (name.size() != searchName.size()) 
-    // {
-    //     return false;
-    // }
-    for (int i = 0; i < searchName.size(); i++)
-    {
-        if (name[i] != searchName[i])
-        {
-            return false;
+// Reads phonebook files and returns vector of Contact structs
+vector<Contact> read_phonebook_files(int argc, char **argv) {
+    vector<Contact> contacts;
+    for (int i = 1; i < argc - 1; i++) {
+        ifstream file(argv[i]);
+        if (!file) {
+            cerr << "Error opening file: " << argv[i] << "\n";
+            continue;
+        }
+        string name, phone;
+        while (file >> name >> phone) {
+            contacts.push_back({name, phone});
         }
     }
-    // cout<<name<<" "<<number<<" found by process "<<rank<<endl;
-    // printf("%s %s found by process %d.\n", name.c_str(), number.c_str(), rank);
-    return true;
+    return contacts;
 }
 
-void read_phonebook(vector<string> &file_names, vector<string> &names, vector<string> &phone_numbers)
-{
-    for (auto file_name : file_names)
-    {
-        ifstream file(file_name);
-        string name, number;
-        while (file >> name >> number)
-        {
-            names.push_back(name);
-            phone_numbers.push_back(number);
+// Searches for matching contact names
+string search_contacts(const vector<Contact> &contacts, const string &search_term) {
+    stringstream results;
+    for (const auto &c : contacts) {
+        if (c.name.find(search_term) != string::npos) {
+            results << c.name << " " << c.phone << "\n";
         }
-        file.close();
     }
-    // ifstream file(fileName);
-        // string line;
-        // while(getline(file, line)){
-        //     stringstream st(line);
-        //     string word;
-        //     while(st >> word){
-        //         cout<<word<<", ";
-        //     }
-        //     cout<<endl;
-        // }
+    return results.str();
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     MPI_Init(&argc, &argv);
+    int rank, size;
 
-    int world_size, world_rank;
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-    string search;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    if (argc < 3) {
+        if (rank == 0)
+            cerr << "Usage: mpirun -np <n> " << argv[0] << " <file1> ... <fileN> <search_term>\n";
+        MPI_Finalize();
+        return 1;
+    }
+
+    string search_term(argv[argc - 1]);
+    int total_contacts = 0;
+    vector<Contact> contacts;
+
+    if (rank == 0) {
+        contacts = read_phonebook_files(argc, argv);
+        total_contacts = contacts.size();
+    }
+
+    // Broadcast search term to all processes
+    int term_len = search_term.size();
+    MPI_Bcast(&term_len, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    if (rank != 0) search_term.resize(term_len);
+    MPI_Bcast(&search_term[0], term_len, MPI_CHAR, 0, MPI_COMM_WORLD);
+
+    // Broadcast total number of contacts
+    MPI_Bcast(&total_contacts, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Determine chunk for each process
+    int chunk = (total_contacts + size - 1) / size;
+    int start_idx = rank * chunk;
+    int end_idx = min(start_idx + chunk, total_contacts);
+    int local_count = end_idx - start_idx;
+
+    vector<Contact> local_contacts(local_count);
+
+    // Distribute contact data from root
+    if (rank == 0) {
+        for (int proc = 1; proc < size; proc++) {
+            int s = proc * chunk;
+            int e = min(s + chunk, total_contacts);
+            int count = e - s;
+            for (int i = s; i < e; ++i) {
+                int len_name = contacts[i].name.size();
+                int len_phone = contacts[i].phone.size();
+                MPI_Send(&len_name, 1, MPI_INT, proc, 0, MPI_COMM_WORLD);
+                MPI_Send(contacts[i].name.c_str(), len_name, MPI_CHAR, proc, 0, MPI_COMM_WORLD);
+                MPI_Send(&len_phone, 1, MPI_INT, proc, 0, MPI_COMM_WORLD);
+                MPI_Send(contacts[i].phone.c_str(), len_phone, MPI_CHAR, proc, 0, MPI_COMM_WORLD);
+            }
+        }
+        for (int i = start_idx; i < end_idx; ++i) {
+            local_contacts[i - start_idx] = contacts[i];
+        }
+    } else {
+        for (int i = 0; i < local_count; ++i) {
+            int len_name, len_phone;
+            MPI_Recv(&len_name, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            string name(len_name, ' ');
+            MPI_Recv(&name[0], len_name, MPI_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(&len_phone, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            string phone(len_phone, ' ');
+            MPI_Recv(&phone[0], len_phone, MPI_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            local_contacts[i] = {name, phone};
+        }
+    }
+
+    // 🔽 TIMING ONLY LOCAL SEARCH (correct placement)
+    MPI_Barrier(MPI_COMM_WORLD);  // ensure all reach here before timing
     double start_time = MPI_Wtime();
 
-    map<string, string>ultimateResult;
+    string local_result = search_contacts(local_contacts, search_term);
 
+    double end_time = MPI_Wtime();
 
-    if (!world_rank)
-    {
-        vector<string> names, phone_numbers;
-        vector<string> file_names(argv + 1, argv + argc);
-        read_phonebook(file_names, names, phone_numbers);
-        int segment = names.size() / world_size + 1;
-        cout << "Give name to search: ";
-        cin >> search;
-        for (int i = 1; i < world_size; i++)
-        {
-            int start = i * segment, end = start + segment;
-            string names_to_send = vector_to_string(names, start, end);
-            send_string(names_to_send, i);
-            string phone_numbers_to_send = vector_to_string(phone_numbers, start, end);
-            send_string(phone_numbers_to_send, i);
-            send_string(search, i);
-        }
+    double local_time = end_time - start_time;
 
-        for(int i = 0 ; i < segment; i++){
-            bool isMatched = check(names[i], phone_numbers[i], search, world_rank);
-            if(isMatched){
-                ultimateResult[names[i]] = phone_numbers[i];
-                // ultimateResult.push_back({names[i], phone_numbers[i]});
-            }
-        }
-    }
-    else
-    {
-        string received_names = receive_string(0);
-        vector<string> names = string_to_vector(received_names);
-        string received_phone_numbers = receive_string(0);
-        vector<string> phone_numbers = string_to_vector(received_phone_numbers);
-        search = receive_string(0);
+    /*
+    MPI rule:
+    Even though all processes must call MPI_Gather, only the root process (rank 0) receives data into the recv_counts array.
+    */
 
-        string matchedName = "";
-        string matchedNumber = "";
-        for(int i = 0; i < names.size(); i++){
-            bool isMatched = check(names[i], phone_numbers[i], search, world_rank);
-            if(isMatched){
-                matchedName += names[i] + " ";
-                matchedNumber += phone_numbers[i] + " ";
-            }
-        }
-        send_string(matchedName, 0);
-        send_string(matchedNumber, 0);
-    }
+    // Send results to root
+    int local_len = local_result.size();
+    vector<int> recv_counts(size); // contains the number of elemnents each rank sends.
+    MPI_Gather(&local_len, 1, MPI_INT, recv_counts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    if(world_rank == 0){
-        string allMatchedName = "";
-        string allMatchedNumber = "";
-        for(int i = 1; i < world_size; i++){
-            allMatchedName += receive_string(i);
-            allMatchedNumber += receive_string(i);
-        }
-        stringstream ss1(allMatchedName), ss2(allMatchedNumber);
-        string word1, word2;
-        while(ss1 >> word1 && ss2 >> word2){
-            ultimateResult[word1] = word2;
-            // ultimateResult.push_back({word1, word2});
-        }
-        // sort(ultimateResult.begin(), ultimateResult.end());
-        for(auto [key, val] : ultimateResult){
-            cout<<key<<" -> "<<val<<endl;
+    // Compute displacements
+    // displs[] contains the starting offset in the receive buffer for each process
+    vector<int> displs(size);
+    int total_result_len = 0;
+    if (rank == 0) {
+        for (int i = 0; i < size; ++i) {
+            displs[i] = total_result_len;
+            total_result_len += recv_counts[i];
         }
     }
 
-    double finish_time = MPI_Wtime();
+    string global_result(total_result_len, ' ');
 
-    MPI_Barrier(MPI_COMM_WORLD);
+    // gathers the variable-sized data to the root.
+    MPI_Gatherv(local_result.data(), local_len, MPI_CHAR,
+                &global_result[0], recv_counts.data(), displs.data(), MPI_CHAR,
+                0, MPI_COMM_WORLD);
 
-    printf("Process %d took %f seconds.\n", world_rank, finish_time - start_time);
+    if (rank == 0) {
+        cout << "\nSearch Results:\n" << global_result;
+    }
+
+    printf("Process %d execution time: %.6f seconds.\n", rank, local_time);
 
     MPI_Finalize();
-
     return 0;
 }
