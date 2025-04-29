@@ -9,36 +9,36 @@ This program demonstrates a distributed phonebook search using **MPI in C++**. I
 
 
 
-bash
+```bash
     search_optimized.cpp     # Main source file
     README.md                # This file`
-
+```
 * * * * *
 
 ### 📥 Input Format
 
 Each phonebook text file should contain lines in the format:
 
-nginx
+```nginx
     Name PhoneNumber
-
+```
 
 **Example:**
 
-nginx
+```nginx
     Alice 123456
     Bob 789012
     Charlie 345678
-
+```
 * * * * *
 
 ### 🚀 Compilation
 
 Use mpic++ to compile:
 
-bash 
+```bash 
     mpic++ -o search search_optimized.cpp
-
+```
 
 * * * * *
 
@@ -46,21 +46,26 @@ bash
 
 Run with 4 processes on 2 phonebook files and search for "Bob":
 
-bash
+```bash
     mpirun -np 4 ./search phonebook1.txt phonebook2.txt Bob
-
+```
 * * * * *
 
 ### 📤 Output
 
 The program outputs all matching entries whose name contains the search term, followed by the total time taken:
 
-sql
+```sql
 Search Results:
-Bob 789012
-Bobby 555555
-Total Time: 0.004321 seconds
 
+Bob 01989123456
+Bob 01999123456
+Bob 01799123456
+Process 0 execution time: 0.000018 seconds.
+Process 1 execution time: 0.000020 seconds.
+Process 2 execution time: 0.000018 seconds.
+Process 3 execution time: 0.000010 seconds.
+```
 
 * * * * *
 
@@ -80,7 +85,7 @@ Total Time: 0.004321 seconds
 
 ### 🧼 Cleanup
 
-To remove compiled files: rm search
+To remove compiled files: `rm search`
 
 * * * * *
 
