@@ -47,7 +47,7 @@ Use mpic++ to compile:
 Run with 4 processes on 2 phonebook files and search for "Bob":
 
 ```bash
-    mpirun -np 4 ./search phonebook1.txt phonebook2.txt Bob
+    mpirun -np 4 ./search phonebook1.txt [phonebook2.txt] Bob
 ```
 * * * * *
 
